@@ -218,8 +218,51 @@ Example request:
 | `source` | Yes | Starting point as `[longitude, latitude]` |
 | `destination` | Yes | Destination as `[longitude, latitude]` |
 | `vehicle_category` | No | Vehicle category; defaults to `car` |
-| `journey_type` | No | `single` or `return`; defaults to `single` |
+| `journey_type` | No | `single`, `return`, `monthly`, or `commercial`; defaults to `single` |
 | `include_geometry` | No | Set to `true` to include route GeoJSON |
+
+
+### Truck Axle-Based Requests
+
+In addition to predefined vehicle categories, the API supports truck requests using the actual axle count.
+
+When using this format, provide `vehicle_type: "truck"` and `axle_count` instead of `vehicle_category`.
+
+**Example: 3-axle truck, return journey**
+
+```json
+{
+  "source": [77.08037, 27.570033],
+  "destination": [76.7794, 30.7333],
+  "vehicle_type": "truck",
+  "axle_count": 3,
+  "journey_type": "return",
+  "include_geometry": false
+}
+```
+
+**Axle-to-tariff mapping**
+
+| Requested axle count | Tariff category used | Approximate |
+|---|---|---|
+| 2 | `axle_4_6` | Yes |
+| 3 | `axle_4_6` | Yes |
+| 4–6 | `axle_4_6` | No |
+| 7 or more | `axle_7_plus` | No |
+
+The 2- and 3-axle mappings use the available 4–6 axle tariff band as provisional estimates. They are not exact axle-specific tariffs and should be independently verified.
+
+**Additional response fields**
+
+For axle-based truck requests, the response includes:
+
+- `vehicle_type`: Requested vehicle type (`truck`).
+- `requested_axle_count`: Axle count provided by the caller.
+- `tariff_category_used`: Database tariff category selected for the calculation.
+- `is_approximate`: Indicates whether an approximate tariff band was used.
+- `estimation_message`: Explains the selected tariff band and any approximation.
+
+Existing requests using `vehicle_category` continue to work without requiring `vehicle_type` or `axle_count`. This maintains backward compatibility.
 
 **Journey types**
 
@@ -341,7 +384,7 @@ The importer preserves source and confidence metadata where available. Confidenc
 ## Important Limitations
 
 - Toll plazas identified near a route are candidates, not confirmation that a vehicle must pay at every identified plaza.
-- The application currently identifies candidates within 100 metres of the calculated route.
+- The application currently identifies candidates within 250 metres of the calculated route.
 - Closed-loop toll systems may require entry and exit information that is not currently calculated.
 - Missing or zero-valued rates can prevent a complete toll estimate.
 - Rates with past revision dates may have changed and should be verified.
