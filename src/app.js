@@ -103,47 +103,87 @@ app.get("/api/v1/toll-plazas", async (req, res) => {
 
 app.post("/api/v1/route", async (req, res) => {
   try {
-    const {
-      source,
-      destination,
-      vehicle_category = "car",
-      journey_type = "single",
-      include_geometry = false,
-    } = req.body || {};
+    
+const {
+  source,
+  destination,
+  vehicle_category = "car",
+  vehicle_type,
+  axle_count,
+  journey_type = "single",
+  include_geometry = false,
+} = req.body || {};
 
-    if (!VEHICLE_CATEGORIES.includes(vehicle_category)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid vehicle category.",
-        allowed_categories: VEHICLE_CATEGORIES,
-      });
-    }
+const isAxleBasedTruck = vehicle_type === "truck";
+let tariffCategory = vehicle_category;
+let isApproximate = false;
 
-    if (!JOURNEY_TYPES.includes(journey_type)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid journey type.",
-        allowed_journey_types: JOURNEY_TYPES,
-      });
-    }
+if (vehicle_type !== undefined && vehicle_type !== "truck") {
+  return res.status(400).json({
+    success: false,
+    message: "Currently, vehicle_type supports only 'truck'.",
+  });
+}
 
-    if (!isValidPoint(source) || !isValidPoint(destination)) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Source and destination must be [longitude, latitude] arrays of valid numbers.",
-      });
-    }
+if (isAxleBasedTruck) {
+  if (
+    !Number.isInteger(axle_count) ||
+    axle_count < 2 ||
+    axle_count > 20
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Truck axle_count must be an integer between 2 and 20.",
+    });
+  }
 
-    if (!process.env.ORS_API_KEY) {
-      return res.status(500).json({
-        success: false,
-        message: "Routing API key is not configured.",
-      });
-    }
+  tariffCategory = axle_count >= 7 ? "axle_7_plus" : "axle_4_6";
+  isApproximate = axle_count <= 3;
+} else {
+  if (axle_count !== undefined) {
+    return res.status(400).json({
+      success: false,
+      message: "Provide vehicle_type: 'truck' when using axle_count.",
+    });
+  }
 
-    const routingProfile =
-      vehicle_category === "car" ? "driving-car" : TRUCK_PROFILE;
+  if (!VEHICLE_CATEGORIES.includes(vehicle_category)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid vehicle category.",
+      allowed_categories: VEHICLE_CATEGORIES,
+    });
+  }
+}
+
+if (!JOURNEY_TYPES.includes(journey_type)) {
+  return res.status(400).json({
+    success: false,
+    message: "Invalid journey type.",
+    allowed_journey_types: JOURNEY_TYPES,
+  });
+}
+
+if (!isValidPoint(source) || !isValidPoint(destination)) {
+  return res.status(400).json({
+    success: false,
+    message:
+      "Source and destination must be [longitude, latitude] arrays of valid numbers.",
+  });
+}
+
+if (!process.env.ORS_API_KEY) {
+  return res.status(500).json({
+    success: false,
+    message: "Routing API key is not configured.",
+  });
+}
+
+const routingProfile =
+  isAxleBasedTruck || vehicle_category !== "car"
+    ? TRUCK_PROFILE
+    : "driving-car";
+
 
     const routeResponse = await axios.post(
       `${ORS_DIRECTIONS_URL}/${routingProfile}/geojson`,
@@ -230,7 +270,7 @@ app.post("/api/v1/route", async (req, res) => {
        LIMIT $3`,
       [
         routeGeometry,
-        vehicle_category,
+        tariffCategory,
         PLAZA_LIMIT,
         journey_type,
         PLAZA_RADIUS_METERS,
@@ -309,6 +349,11 @@ app.post("/api/v1/route", async (req, res) => {
     const dataSources = [...new Set(withRate.map((p) => p.data_source))];
 
     const warnings = [];
+    if (isAxleBasedTruck && isApproximate) {
+  warnings.push(
+    `The requested ${axle_count}-axle truck does not have an exact axle-specific tariff. The estimate uses the ${tariffCategory === "axle_4_6" ? "4–6 axle" : "7+ axle"} tariff band and should be independently verified.`
+  );
+}
 
     if (truncated) {
       warnings.push(
@@ -340,9 +385,18 @@ app.post("/api/v1/route", async (req, res) => {
       );
     }
 
-    const data = {
-      vehicle_category,
-      journey_type,
+   const data = {
+  vehicle_type: isAxleBasedTruck ? "truck" : undefined,
+  requested_axle_count: isAxleBasedTruck ? axle_count : undefined,
+  vehicle_category: tariffCategory,
+  tariff_category_used: tariffCategory,
+  is_approximate: isAxleBasedTruck ? isApproximate : false,
+  estimation_message: isAxleBasedTruck
+    ? isApproximate
+      ? `Exact ${axle_count}-axle tariff is not available. The estimate uses the available ${tariffCategory === "axle_4_6" ? "4–6 axle" : "7+ axle"} tariff band.`
+      : `The estimate uses the ${tariffCategory === "axle_4_6" ? "4–6 axle" : "7+ axle"} tariff band.`
+    : null,
+  journey_type,
       routing_profile: routingProfile,
       distance_meters: feature.properties.summary.distance,
       duration_seconds: feature.properties.summary.duration,
