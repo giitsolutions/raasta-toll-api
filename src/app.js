@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json());
 
 const PLAZA_LIMIT = 200;
-const PLAZA_RADIUS_METERS = 100;
+const PLAZA_RADIUS_METERS = 250;
 const VEHICLE_CATEGORIES = [
   "car",
   "lcv",
@@ -18,7 +18,7 @@ const VEHICLE_CATEGORIES = [
   "axle_7_plus",
   "hcm",
 ];
-const JOURNEY_TYPES = ["single", "return"];
+const JOURNEY_TYPES = ["single", "return", "monthly", "commercial"];
 const ORS_DIRECTIONS_URL =
   "https://api.heigit.org/openrouteservice/v2/directions";
 const TRUCK_PROFILE = process.env.ORS_TRUCK_PROFILE || "driving-hgv";
@@ -367,21 +367,46 @@ app.post("/api/v1/route", async (req, res) => {
     }
 
     res.json({ success: true, data });
-  } catch (error) {
-    const upstreamStatus = error.response?.status || null;
+  }  catch (error) {
+  const upstreamStatus = error.response?.status || null;
 
-    console.error(
-      "Route request failed:",
-      upstreamStatus || error.message,
-      error.response?.data?.error?.message || ""
-    );
+  const isDatabaseError =
+    /^[0-9A-Z]{5}$/.test(error.code || "") ||
+    ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT"].includes(error.code);
 
-    res.status(502).json({
+  if (axios.isAxiosError(error)) {
+    const isTimeout =
+      error.code === "ECONNABORTED" ||
+      error.code === "ETIMEDOUT";
+
+    console.error("Routing provider failure:", error.message);
+
+    return res.status(isTimeout ? 504 : 502).json({
       success: false,
-      message: "Unable to calculate route or find nearby toll plazas.",
+      message: isTimeout
+        ? "The routing provider timed out. Please try again."
+        : "Unable to obtain route from the routing provider.",
       upstream_status: upstreamStatus,
     });
   }
+
+  if (isDatabaseError) {
+    console.error("Database failure during route request:", error.message);
+
+    return res.status(503).json({
+      success: false,
+      message: "Toll database is temporarily unavailable.",
+    });
+  }
+
+  console.error("Unexpected route request failure:", error.message);
+
+  return res.status(500).json({
+    success: false,
+    message: "An internal error occurred while calculating the route.",
+  });
+}
+
 });
 
 const PORT = process.env.PORT || 3000;

@@ -1,4 +1,7 @@
-﻿node_modules/
+﻿
+node_modules/
+
+# Environment variables and secrets
 .env
 .env.*
 !.env.example
@@ -12,12 +15,15 @@ npm-debug.log*
 .temp/
 .temp_*
 *.bak
+*.bak*
+
+# Local datasets and backups
+data/
+database-backups/
+route-geometry.json
 
 # OS/editor files
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-
-data/toll-plazas-raw.json
-*.bak*
