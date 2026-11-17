@@ -77,6 +77,18 @@ async function runTests() {
       }),
     });
   }
+  async function axleTruckRequest(axleCount) {
+  return request("/api/v1/route", {
+    method: "POST",
+    body: JSON.stringify({
+      source: SOURCE,
+      destination: DESTINATION,
+      vehicle_type: "truck",
+      axle_count: axleCount,
+      journey_type: "single",
+    }),
+  });
+}
 
   await test("Car single journey", async () => {
     const { status, data } = await routeRequest("car", "single");
@@ -103,6 +115,30 @@ async function runTests() {
       "Wrong truck routing profile"
     );
   });
+  await test("3-axle truck uses approximate 4-6 axle tariff", async () => {
+  const { status, data } = await axleTruckRequest(3);
+
+  assert(status === 200, `Expected 200, received ${status}`);
+  assert(data.data.requested_axle_count === 3, "Wrong axle count");
+  assert(data.data.tariff_category_used === "axle_4_6", "Wrong tariff band");
+  assert(data.data.is_approximate === true, "Expected approximate tariff");
+});
+
+await test("5-axle truck uses 4-6 axle tariff", async () => {
+  const { status, data } = await axleTruckRequest(5);
+
+  assert(status === 200, `Expected 200, received ${status}`);
+  assert(data.data.tariff_category_used === "axle_4_6", "Wrong tariff band");
+  assert(data.data.is_approximate === false, "Unexpected approximation");
+});
+
+await test("7-axle truck uses 7+ axle tariff", async () => {
+  const { status, data } = await axleTruckRequest(7);
+
+  assert(status === 200, `Expected 200, received ${status}`);
+  assert(data.data.tariff_category_used === "axle_7_plus", "Wrong tariff band");
+  assert(data.data.is_approximate === false, "Unexpected approximation");
+});
 
   await test("Car return journey", async () => {
     const { status, data } = await routeRequest("car", "return");
@@ -117,6 +153,37 @@ async function runTests() {
       ),
       "Return tariff warning is missing"
     );
+  });
+
+  await test("Per-plaza rate diagnostics", async () => {
+    const { status, data } = await routeRequest("axle_4_6", "single");
+
+    assert(status === 200, `Expected 200, received ${status}`);
+
+    for (const plaza of data.data.toll_plazas) {
+      assert(
+        typeof plaza.fee_point_type === "string",
+        `Missing fee_point_type for ${plaza.name}`
+      );
+
+      if (plaza.rate_status === "available") {
+        assert(
+          plaza.missing_reason === null,
+          `Unexpected missing_reason for ${plaza.name}`
+        );
+      } else {
+        assert(
+          typeof plaza.missing_reason === "string",
+          `Missing missing_reason for ${plaza.name}`
+        );
+      }
+    }
+
+  assert(
+  data.data.toll_summary.missing_reason_counts !== null &&
+  typeof data.data.toll_summary.missing_reason_counts === "object",
+  "Missing missing_reason_counts"
+);
   });
 
   await test("Invalid vehicle category", async () => {

@@ -68,6 +68,11 @@ async function importData() {
   let plazasUpdated = 0;
   let plazasSkipped = 0;
   let ratesImported = 0;
+  let emptyRateValues = 0;
+  let plazasWithoutEffectiveDate = 0;
+  const plazasWithoutRates = [];
+  const unparseableRates = [];
+  const negativeRates = [];
 
   try {
     await client.query("BEGIN");
@@ -155,14 +160,43 @@ async function importData() {
         toDate(p.rate_effective_date) || toDate(p.last_updated);
 
       if (!effectiveFrom) {
+        plazasWithoutEffectiveDate++;
         continue;
       }
 
+      let ratesForPlaza = 0;
+
       for (const category of vehicleCategories) {
         for (const rateType of rateTypes) {
-          const amount = toNumber(p[`${category}_${rateType}`]);
+          const field = `${category}_${rateType}`;
+          const rawValue = p[field];
+          const amount = toNumber(rawValue);
 
-          if (amount === null || amount < 0) {
+          if (amount === null) {
+            if (
+              rawValue === null ||
+              rawValue === undefined ||
+              String(rawValue).trim() === ""
+            ) {
+              emptyRateValues++;
+            } else {
+              unparseableRates.push({
+                source_id: sourceId,
+                name: p.tollplaza_name,
+                field,
+                value: rawValue,
+              });
+            }
+            continue;
+          }
+
+          if (amount < 0) {
+            negativeRates.push({
+              source_id: sourceId,
+              name: p.tollplaza_name,
+              field,
+              value: rawValue,
+            });
             continue;
           }
 
@@ -176,7 +210,12 @@ async function importData() {
           );
 
           ratesImported++;
+          ratesForPlaza++;
         }
+      }
+
+      if (ratesForPlaza === 0) {
+        plazasWithoutRates.push({ source_id: sourceId, name: p.tollplaza_name });
       }
     }
 
@@ -187,6 +226,27 @@ async function importData() {
     console.log("Existing plazas updated:", plazasUpdated);
     console.log("Invalid records skipped:", plazasSkipped);
     console.log("Rate rows imported:", ratesImported);
+    console.log("Empty rate values skipped:", emptyRateValues);
+    console.log(
+      "Plazas skipped for rates (no effective date):",
+      plazasWithoutEffectiveDate
+    );
+    console.log("Plazas imported with no rate rows:", plazasWithoutRates.length);
+    console.log("Unparseable rate values skipped:", unparseableRates.length);
+
+    for (const item of unparseableRates) {
+      console.log(
+        `  ${item.source_id} ${item.name} ${item.field} = ${JSON.stringify(item.value)}`
+      );
+    }
+
+    console.log("Negative rate values skipped:", negativeRates.length);
+
+    for (const item of negativeRates) {
+      console.log(
+        `  ${item.source_id} ${item.name} ${item.field} = ${JSON.stringify(item.value)}`
+      );
+    }
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

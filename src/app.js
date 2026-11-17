@@ -3,12 +3,17 @@ require("dotenv").config();
 
 const axios = require("axios");
 const pool = require("./db");
+const {
+  CLOSED_SYSTEM_PATTERN,
+  describeRate,
+} = require("./plaza-classification");
 const app = express();
 
 app.use(express.json());
 
 const PLAZA_LIMIT = 200;
 const PLAZA_RADIUS_METERS = 250;
+const DUPLICATE_RADIUS_METERS = 300;
 const VEHICLE_CATEGORIES = [
   "car",
   "lcv",
@@ -22,7 +27,6 @@ const JOURNEY_TYPES = ["single", "return", "monthly", "commercial"];
 const ORS_DIRECTIONS_URL =
   "https://api.heigit.org/openrouteservice/v2/directions";
 const TRUCK_PROFILE = process.env.ORS_TRUCK_PROFILE || "driving-hgv";
-const CLOSED_SYSTEM_PATTERN = /close\s*loop|entry\s*exit/i;
 
 function todayInIndia() {
   return new Date(Date.now() + 5.5 * 60 * 60 * 1000)
@@ -240,7 +244,16 @@ const routingProfile =
          r.effective_to AS rate_effective_to,
          p.data_source,
          p.data_confidence,
-         p.rate_revision_date::text AS rate_revision_date
+         p.rate_revision_date::text AS rate_revision_date,
+         rc.total_rows,
+         rc.category_rows,
+         rc.category_other_journey_rows,
+         rc.future_rows,
+         rc.expired_rows,
+         dup.source_id AS duplicate_source_id,
+         dup.name AS duplicate_name,
+         dup.data_source AS duplicate_data_source,
+         dup.distance_m AS duplicate_distance_m
        FROM toll_plazas p
        CROSS JOIN route
        LEFT JOIN LATERAL (
@@ -260,6 +273,42 @@ const routingProfile =
          ORDER BY tr.effective_from DESC
          LIMIT 1
        ) r ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT
+           COUNT(*) AS total_rows,
+           COUNT(*) FILTER (
+             WHERE t.vehicle_category = $2
+           ) AS category_rows,
+           COUNT(*) FILTER (
+             WHERE t.vehicle_category = $2
+               AND t.rate_type <> $4
+           ) AS category_other_journey_rows,
+           COUNT(*) FILTER (
+             WHERE t.vehicle_category = $2
+               AND t.rate_type = $4
+               AND t.effective_from > CURRENT_DATE
+           ) AS future_rows,
+           COUNT(*) FILTER (
+             WHERE t.vehicle_category = $2
+               AND t.rate_type = $4
+               AND t.effective_to < CURRENT_DATE
+           ) AS expired_rows
+         FROM toll_rates t
+         WHERE t.plaza_id = p.id
+       ) rc ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT
+           q.source_id,
+           q.name,
+           q.data_source,
+           ROUND(ST_Distance(p.location, q.location)::numeric) AS distance_m
+         FROM toll_plazas q
+         WHERE q.is_active = TRUE
+           AND q.id <> p.id
+           AND ST_DWithin(p.location, q.location, $6)
+         ORDER BY ST_Distance(p.location, q.location) ASC
+         LIMIT 1
+       ) dup ON TRUE
        WHERE p.is_active = TRUE
          AND ST_DWithin(
            p.location,
@@ -274,6 +323,7 @@ const routingProfile =
         PLAZA_LIMIT,
         journey_type,
         PLAZA_RADIUS_METERS,
+        DUPLICATE_RADIUS_METERS,
       ]
     );
 
@@ -288,6 +338,12 @@ const routingProfile =
           rateStatus = "zero_in_source";
         }
 
+        const rateDescription = describeRate({
+          rateStatus,
+          name: row.name,
+          counts: row,
+        });
+
         return {
           source_id: row.source_id,
           name: row.name,
@@ -300,6 +356,19 @@ const routingProfile =
           toll_inr: rateStatus === "available" ? rate : null,
           rate_status: rateStatus,
           likely_closed_system: CLOSED_SYSTEM_PATTERN.test(row.name || ""),
+          fee_point_type: rateDescription.fee_point_type,
+          missing_reason: rateDescription.missing_reason,
+          rate_data_state: rateDescription.rate_data_state,
+          possible_duplicate_of:
+            row.duplicate_source_id === null ||
+            row.duplicate_source_id === undefined
+              ? null
+              : {
+                  source_id: row.duplicate_source_id,
+                  name: row.duplicate_name,
+                  data_source: row.duplicate_data_source,
+                  distance_m: Number(row.duplicate_distance_m),
+                },
           rate_effective_from: row.rate_effective_from,
           rate_effective_to: row.rate_effective_to,
           data_source: row.data_source,
@@ -325,6 +394,26 @@ const routingProfile =
     const closedSystemCount = tollPlazas.filter(
       (p) => p.likely_closed_system
     ).length;
+    const possibleClosedSystemCount = tollPlazas.filter(
+      (p) =>
+        p.fee_point_type === "possible_closed_system" &&
+        p.rate_status !== "available"
+    ).length;
+    const nonHighwayCount = tollPlazas.filter(
+      (p) =>
+        p.fee_point_type === "non_highway_fee_point" &&
+        p.rate_status !== "available"
+    ).length;
+    const possibleDuplicateCount = tollPlazas.filter(
+      (p) => p.possible_duplicate_of !== null
+    ).length;
+    const missingReasonCounts = {};
+    for (const plaza of tollPlazas) {
+      if (plaza.missing_reason) {
+        missingReasonCounts[plaza.missing_reason] =
+          (missingReasonCounts[plaza.missing_reason] || 0) + 1;
+      }
+    }
     const truncated = plazaResult.rowCount >= PLAZA_LIMIT;
     const pastRevisionCount = tollPlazas.filter(
       (p) => p.rate_freshness === "past_revision_date"
@@ -373,6 +462,24 @@ const routingProfile =
       );
     }
 
+    if (possibleClosedSystemCount > 0) {
+      warnings.push(
+        `${possibleClosedSystemCount} plaza(s) without a rate have interchange or exit style names and may be closed-system tolls. This is based on the name only and should be verified.`
+      );
+    }
+
+    if (nonHighwayCount > 0) {
+      warnings.push(
+        `${nonHighwayCount} point(s) without a rate look like checkposts or border/forest fee points rather than highway toll plazas. They are not treated as free.`
+      );
+    }
+
+    if (possibleDuplicateCount > 0) {
+      warnings.push(
+        `${possibleDuplicateCount} plaza(s) are within ${DUPLICATE_RADIUS_METERS} m of another listed plaza and may be the same physical toll point recorded twice. Totals are not adjusted.`
+      );
+    }
+
     if (pastRevisionCount > 0) {
       warnings.push(
         `${pastRevisionCount} plaza(s) have a rate whose revision date has passed; the published rate may have changed.`
@@ -408,6 +515,7 @@ const routingProfile =
         plazas_without_rate: tollPlazas.length - withRate.length,
         likely_closed_system_plazas: closedSystemCount,
         plazas_past_revision_date: pastRevisionCount,
+        missing_reason_counts: missingReasonCounts,
         rate_confidence: rateConfidence,
         data_sources: dataSources,
         list_may_be_truncated: truncated,
