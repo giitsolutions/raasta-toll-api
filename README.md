@@ -9,16 +9,20 @@ The API accepts source and destination coordinates, calculates a road route, ide
 ## Features
 
 - Calculate road routes between source and destination coordinates.
-- Support seven vehicle categories, including commercial trucks.
+- Support seven database vehicle categories, including commercial trucks.
+- Accept actual truck axle counts and select an available tariff category.
 - Support single and return toll-rate calculations.
 - Identify toll-plaza candidates near the calculated route.
 - Retrieve applicable rates from PostgreSQL.
 - Distinguish available, missing, and zero-valued source rates.
+- Diagnose why a toll rate is unavailable.
+- Classify likely closed-system and non-highway fee points.
+- Identify nearby plaza records that may be duplicates.
 - Calculate known toll subtotals and report incomplete estimates.
 - Return route distance, duration, toll details, and data-quality warnings.
 - Optionally return route geometry as GeoJSON.
 - Health endpoint with database connectivity verification.
-- Automated API smoke tests using Node.js built-in testing utilities.
+- Automated unit tests and API smoke tests.
 
 ## Tech Stack
 
@@ -29,6 +33,7 @@ The API accepts source and destination coordinates, calculates a road route, ide
 - OpenRouteService / HeiGIT routing API
 - Axios
 - Git and GitHub
+- Node.js built-in test runner
 
 ## Supported Vehicle Categories
 
@@ -106,6 +111,16 @@ node scripts/import-toll-plazas.js
 The importer inserts new toll plazas, updates existing records, and imports available rates for supported vehicle categories and rate types.
 
 The import operation uses a database transaction and can be rerun to update existing records.
+
+The importer also reports data-quality observations, including:
+
+- Empty rate values.
+- Missing effective dates.
+- Plazas with no imported rates.
+- Unparseable rate values.
+- Negative rate values.
+
+Unparseable values are reported rather than silently converted into guessed toll amounts.
 
 ### 6. Start the API server
 
@@ -221,7 +236,6 @@ Example request:
 | `journey_type` | No | `single`, `return`, `monthly`, or `commercial`; defaults to `single` |
 | `include_geometry` | No | Set to `true` to include route GeoJSON |
 
-
 ### Truck Axle-Based Requests
 
 In addition to predefined vehicle categories, the API supports truck requests using the actual axle count.
@@ -258,6 +272,7 @@ For axle-based truck requests, the response includes:
 
 - `vehicle_type`: Requested vehicle type (`truck`).
 - `requested_axle_count`: Axle count provided by the caller.
+- `vehicle_category`: Selected database tariff category.
 - `tariff_category_used`: Database tariff category selected for the calculation.
 - `is_approximate`: Indicates whether an approximate tariff band was used.
 - `estimation_message`: Explains the selected tariff band and any approximation.
@@ -268,6 +283,8 @@ Existing requests using `vehicle_category` continue to work without requiring `v
 
 - `single`: Retrieves the single-journey toll rate.
 - `return`: Retrieves the published return-journey toll rate.
+- `monthly`: Uses the available monthly rate data.
+- `commercial`: Uses the available commercial rate data.
 
 **Example using curl**
 
@@ -285,7 +302,9 @@ curl -X POST http://localhost:3000/api/v1/route \
 
 **Response structure**
 
-A successful response contains:
+A successful response contains route information, toll candidates, and a toll summary.
+
+An illustrative response structure:
 
 ```json
 {
@@ -302,8 +321,6 @@ A successful response contains:
       "known_subtotal_inr": 2080,
       "plazas_with_rate": 4,
       "plazas_without_rate": 2,
-      "likely_closed_system_plazas": 1,
-      "plazas_past_revision_date": 3,
       "rate_confidence": "medium",
       "data_sources": ["nhai"],
       "list_may_be_truncated": false,
@@ -314,11 +331,11 @@ A successful response contains:
 }
 ```
 
-The numbers above illustrate a previously tested Delhi–Chandigarh truck-route response; live results may differ as routing and source data change. The `toll_plazas` array contains individual plaza details.
+The numbers above are illustrative; live results may differ as routing and source data change. The `toll_plazas` array contains individual plaza details.
 
 When `include_geometry` is `true`, the response additionally includes `route_geometry` as a GeoJSON `LineString`.
 
-## Toll Rate Interpretation
+## Toll Rate Interpretation and Diagnostics
 
 Each toll-plaza candidate has a rate status:
 
@@ -330,6 +347,40 @@ Each toll-plaza candidate has a rate status:
 
 A zero-valued source rate is **not automatically treated as a free toll**.
 
+### Rate Diagnostics
+
+The API provides additional information to explain why a toll rate is unavailable.
+
+Important fields include:
+
+- `fee_point_type`: Classification of the fee point.
+- `missing_reason`: Data-level reason why an applicable rate is missing.
+- `rate_data_state`: State of the rate data for the requested category and journey.
+- `possible_duplicate_of`: Information indicating a nearby record that may be a duplicate, when identified.
+- `missing_reason_counts`: Summary of missing-rate reasons across the route candidates.
+
+Possible `fee_point_type` classifications include:
+
+| Classification | Meaning |
+|---|---|
+| `toll_plaza` | Ordinary toll-plaza classification. |
+| `closed_system` | Name matches a likely closed-loop toll pattern. |
+| `possible_closed_system` | Name suggests an interchange or another potentially closed-system fee point. |
+| `non_highway_fee_point` | Name suggests a check post, border, forest or other non-highway fee point. |
+
+Possible rate-data states include:
+
+- `no_rates_in_source`
+- `no_rate_for_vehicle_category`
+- `rate_not_yet_effective`
+- `rate_expired`
+- `no_rate_for_journey_type`
+- `unclassified`
+
+These classifications are diagnostic heuristics based on available source information and naming patterns. They do not independently establish the actual operating arrangement of a fee point.
+
+The `missing_reason` field represents the rate-data state, not the fee-point classification. This keeps data-quality problems separate from fee-point type.
+
 ### Toll Summary
 
 - `known_subtotal_inr`: Sum of rates that are available.
@@ -338,14 +389,63 @@ A zero-valued source rate is **not automatically treated as a free toll**.
 - `plazas_without_rate`: Number of candidates without usable rates.
 - `rate_confidence`: An indication based on source and rate freshness metadata.
 - `warnings`: Important data-quality and calculation warnings.
+- `missing_reason_counts`: Counts of the different missing-rate reasons.
 
 If one or more candidates lack usable rates, `total_toll_inr` is returned as `null` rather than presenting an incomplete subtotal as the final toll amount.
 
+## Duplicate Plaza Investigation
+
+The project includes a read-only script to identify active toll-plaza records located close to one another.
+
+Run:
+
+```bash
+npm run report:duplicates
+```
+
+The default search radius is 300 metres.
+
+A custom radius can be supplied in metres:
+
+```bash
+node scripts/report-duplicate-plazas.js 500
+```
+
+The report displays:
+
+- Source IDs and plaza names.
+- Data sources.
+- Distance between plaza coordinates.
+- Whether each plaza has a positive `axle_4_6` single-journey rate.
+
+**Important:** Nearby records are only potential duplicates. Identical coordinates or similar names do not prove that two records represent the same physical toll facility. The script does not merge, delete, or update any database records.
+
 ## Automated Testing
 
-The project includes an automated smoke-test script.
+The project includes unit tests for plaza classification and rate diagnostics, as well as API smoke tests.
 
-Run the API server in one terminal:
+### 1. Unit tests
+
+Run:
+
+```bash
+npm run test:unit
+```
+
+These tests use Node.js's built-in test runner and verify:
+
+- Closed-system fee-point classification.
+- Possible closed-system classification.
+- Non-highway fee-point classification.
+- Ordinary toll-plaza classification.
+- Missing-rate data-state classification.
+- Available-rate handling.
+- Zero-valued source-rate handling.
+- Separation of fee-point classification and rate-data state.
+
+### 2. API smoke tests
+
+Start the API server in one terminal:
 
 ```bash
 npm run dev
@@ -363,13 +463,15 @@ The smoke tests verify:
 2. Toll-plaza listing.
 3. Car single-journey calculation.
 4. Truck single-journey calculation (4–6 axle).
-5. Car return-journey calculation.
-6. Invalid vehicle-category validation.
-7. Invalid-coordinate validation.
-8. Route geometry when enabled.
-9. Route geometry when disabled.
-
-The tests use Node.js built-in `fetch` and assertions, so no additional testing library is required.
+5. 3-axle truck approximate tariff mapping.
+6. 5-axle truck tariff mapping.
+7. 7-axle truck tariff mapping.
+8. Car return-journey calculation.
+9. Per-plaza rate diagnostics.
+10. Invalid vehicle-category validation.
+11. Invalid-coordinate validation.
+12. Route geometry when enabled.
+13. Route geometry when disabled.
 
 **Requirements:** A running API server, a working PostgreSQL/PostGIS database, and a valid routing API key for successful route tests. Route tests also depend on the external routing service being available.
 
@@ -388,6 +490,9 @@ The importer preserves source and confidence metadata where available. Confidenc
 - Closed-loop toll systems may require entry and exit information that is not currently calculated.
 - Missing or zero-valued rates can prevent a complete toll estimate.
 - Rates with past revision dates may have changed and should be verified.
+- The 2- and 3-axle truck tariff mappings are approximate.
+- Nearby plaza records may represent separate facilities; duplicate detection does not automatically merge them.
+- Fee-point classification uses naming patterns and should not be treated as independently verified ground truth.
 - The API does not currently implement API-client authentication, usage tracking, or geocoding.
 - Truck routing uses the configured OpenRouteService truck profile; route suitability should be checked for the actual vehicle.
 - The raw toll dataset and database schema must be supplied or initialized separately.
@@ -398,6 +503,7 @@ The importer preserves source and confidence metadata where available. Confidenc
 - Improved closed-loop toll calculation using entry and exit points.
 - Automated toll-rate updates and verification.
 - Improved route and toll-plaza matching.
+- Manual verification and resolution of potential duplicate records.
 - Expanded automated testing and integration coverage.
 
 ## License
