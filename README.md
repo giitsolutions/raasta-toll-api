@@ -1,39 +1,93 @@
-# India Toll Calculation API
+# Raasta Toll API – India Toll Calculation Platform
 
-A REST API for estimating toll charges on road routes within India using **Node.js, Express, PostgreSQL, PostGIS, and OpenRouteService (ORS)**.
+An India-focused toll calculation platform that estimates toll charges for road routes using **Node.js, Express.js, PostgreSQL, PostGIS, React, and OpenRouteService (ORS)**.
 
-The API accepts source and destination coordinates, calculates a road route, identifies nearby toll-plaza candidates, and retrieves applicable toll rates for different vehicle categories.
+The platform provides a REST API for calculating route-based toll estimates, along with a Developer Portal for API access, usage monitoring, and API key management. An Admin Dashboard supports customer management and API quota administration.
 
-> Toll amounts are estimates based on the available dataset. They should be independently verified before operational or financial use.
+> **Important:** Toll amounts are estimates based on the available dataset. They should be independently verified before operational or financial use.
 
 ## Features
 
+### Toll Calculation API
 - Calculate road routes between source and destination coordinates.
+- Identify toll-plaza candidates along calculated routes.
 - Support seven database vehicle categories, including commercial trucks.
 - Accept actual truck axle counts and select an available tariff category.
-- Support single and return toll-rate calculations.
-- Identify toll-plaza candidates near the calculated route.
-- Retrieve applicable rates from PostgreSQL.
+- Support single, return, monthly, and commercial rate types.
+- Retrieve applicable toll rates from PostgreSQL.
 - Distinguish available, missing, and zero-valued source rates.
-- Diagnose why a toll rate is unavailable.
+- Provide diagnostics explaining unavailable toll rates.
+- Identify potential duplicate toll-plaza records.
 - Classify likely closed-system and non-highway fee points.
-- Identify nearby plaza records that may be duplicates.
 - Calculate known toll subtotals and report incomplete estimates.
 - Return route distance, duration, toll details, and data-quality warnings.
 - Optionally return route geometry as GeoJSON.
+
+### Developer Portal
+- Developer registration and login.
+- Automatic API key generation during registration.
+- Secure API key storage using SHA-256 hashes.
+- API key authentication through request headers.
+- API key regeneration.
+- Daily API request quotas.
+- Usage dashboard showing API consumption and remaining quota.
+
+### Admin Dashboard
+- Admin email/password authentication.
+- Session-based access control.
+- View registered API customers.
+- Activate or deactivate customer accounts.
+- Create API customers.
+- Modify customer daily request limits.
+- View customer API usage history.
+
+### Additional Features
+- PostgreSQL-backed session management.
 - Health endpoint with database connectivity verification.
 - Automated unit tests and API smoke tests.
+- Diagnostic scripts for toll data quality and duplicate investigation.
 
 ## Tech Stack
 
-- Node.js
-- Express.js
-- PostgreSQL
-- PostGIS
-- OpenRouteService / HeiGIT routing API
-- Axios
-- Git and GitHub
-- Node.js built-in test runner
+| Layer | Technologies |
+|---|---|
+| Backend | Node.js, Express.js |
+| Frontend | React, Vite, Axios |
+| Database | PostgreSQL, PostGIS |
+| Routing | OpenRouteService / HeiGIT |
+| Authentication | bcryptjs, Express Session |
+| Session Storage | connect-pg-simple |
+| API Security | API key hashing, quota validation |
+| Testing | Node.js built-in test runner |
+| Version Control | Git, GitHub |
+
+## Project Structure
+
+```text
+india-toll-api/
+│
+├── client/                     # React + Vite frontend
+│   ├── public/
+│   └── src/
+│       ├── AdminDashboard.jsx
+│       ├── DeveloperPortal.jsx
+│       ├── App.jsx
+│       └── ...
+│
+├── database/                   # Database-related SQL files
+│
+├── scripts/                    # Import, diagnostics and testing scripts
+│
+├── src/
+│   ├── app.js                  # Express application and API routes
+│   ├── db.js                   # PostgreSQL connection
+│   └── plaza-classification.js # Toll plaza classification
+│
+├── data/                       # Local toll dataset (not committed)
+├── .env                        # Local environment configuration
+├── package.json
+└── README.md
+```
 
 ## Supported Vehicle Categories
 
@@ -47,16 +101,29 @@ The API accepts source and destination coordinates, calculates a road route, ide
 | `axle_7_plus` | 7 or more axle |
 | `hcm` | HCM / EME |
 
+### Truck Axle-Based Requests
+
+Truck requests can specify `vehicle_type: "truck"` and an actual `axle_count`.
+
+| Requested axle count | Tariff category used | Approximate |
+|---|---|---|
+| 2 | `axle_4_6` | Yes |
+| 3 | `axle_4_6` | Yes |
+| 4–6 | `axle_4_6` | No |
+| 7 or more | `axle_7_plus` | No |
+
+The 2- and 3-axle mappings use the available 4–6 axle tariff band as provisional estimates. They are not exact axle-specific tariffs.
+
 ## Getting Started
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/palaksingh-06/india-toll-api.git
-cd india-toll-api
+git clone https://github.com/giitsolutions/raasta-toll-api.git
+cd raasta-toll-api
 ```
 
-### 2. Install dependencies
+### 2. Install backend dependencies
 
 ```bash
 npm install
@@ -64,155 +131,149 @@ npm install
 
 ### 3. Configure environment variables
 
-Create a `.env` file in the project root using `.env.example` as a reference.
+Create a `.env` file in the project root.
 
 ```env
 PORT=3000
 DATABASE_URL=postgresql://USERNAME:PASSWORD@HOST:5432/DATABASE_NAME
+
 ORS_API_KEY=YOUR_ORS_API_KEY
 ORS_TRUCK_PROFILE=driving-hgv
+
+SESSION_SECRET=YOUR_SESSION_SECRET
+
+ADMIN_EMAIL=YOUR_ADMIN_EMAIL
+ADMIN_PASSWORD_HASH=YOUR_BCRYPT_PASSWORD_HASH
 ```
 
 Configuration:
 
-- `PORT`: API server port. Defaults to `3000`.
-- `DATABASE_URL`: PostgreSQL connection string.
-- `ORS_API_KEY`: API key for the routing service.
-- `ORS_TRUCK_PROFILE`: Truck routing profile. Defaults to `driving-hgv`.
+| Variable | Purpose |
+|---|---|
+| `PORT` | Backend server port; defaults to 3000 |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `ORS_API_KEY` | Routing service API key |
+| `ORS_TRUCK_PROFILE` | Truck routing profile |
+| `SESSION_SECRET` | Secret used to sign session cookies |
+| `ADMIN_EMAIL` | Admin login email |
+| `ADMIN_PASSWORD_HASH` | bcrypt hash of the admin password |
 
-Never commit your `.env` file or expose API credentials.
+Never commit `.env` or expose API credentials, passwords, or session secrets.
 
-### 4. Set up PostgreSQL and PostGIS
+### 4. Configure PostgreSQL and PostGIS
 
 Create a PostgreSQL database and enable the PostGIS extension.
 
-The required database tables must be initialized before importing toll data or running the API. The application uses the `toll_plazas` and `toll_rates` tables.
+The database must contain the required project tables, including:
 
-**Note:** The database schema is not currently included as a standalone SQL migration file in this repository. An appropriately initialized database is therefore required.
+- `toll_plazas`
+- `toll_rates`
+- `api_clients`
+- `api_usage`
+- `user_sessions`
+
+The registration-related SQL file is available under `database/`. The complete database initialization and migration process should be documented and maintained separately.
 
 ### 5. Import toll data
 
-The import script reads:
+The import script expects the source dataset at:
 
 ```text
 data/toll-plazas-raw.json
 ```
 
-This raw JSON file is excluded from GitHub and must be obtained separately.
+The raw dataset is excluded from Git and must be obtained separately.
 
-The project's data pipeline uses the [ForceGT India Toll Plazas dataset](https://github.com/ForceGT/india-toll-plazas).
+Source: [ForceGT India Toll Plazas](https://github.com/ForceGT/india-toll-plazas)
 
-Place the prepared JSON array at the expected path and run:
+Run:
 
 ```bash
 node scripts/import-toll-plazas.js
 ```
 
-The importer inserts new toll plazas, updates existing records, and imports available rates for supported vehicle categories and rate types.
+The importer inserts new plazas, updates existing records, and imports available toll rates.
 
-The import operation uses a database transaction and can be rerun to update existing records.
+### 6. Start the backend
 
-The importer also reports data-quality observations, including:
-
-- Empty rate values.
-- Missing effective dates.
-- Plazas with no imported rates.
-- Unparseable rate values.
-- Negative rate values.
-
-Unparseable values are reported rather than silently converted into guessed toll amounts.
-
-### 6. Start the API server
-
-Development mode:
+Development:
 
 ```bash
 npm run dev
 ```
 
-Production mode:
+Production:
 
 ```bash
 npm start
 ```
 
-By default, the server runs at:
+The backend runs by default at:
 
 ```text
 http://localhost:3000
 ```
 
+### 7. Start the frontend
+
+Open another terminal:
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+The Vite development server runs at:
+
+```text
+http://localhost:5173
+```
+
+The frontend communicates with the backend through the configured `/api` proxy.
+
 ## API Endpoints
 
-### 1. Health Check
+### Health Check
 
-**GET** `/api/v1/health`
+`GET /api/v1/health`
 
-Checks whether the API is running and the database is accessible.
+Checks API availability and database connectivity.
 
-Example:
+### Developer Authentication
 
-```bash
-curl http://localhost:3000/api/v1/health
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/v1/auth/register` | Register a developer and generate an API key |
+| POST | `/api/v1/auth/login` | Developer login |
+| GET | `/api/v1/auth/me` | Get current developer session |
+| POST | `/api/v1/auth/logout` | Developer logout |
+| GET | `/api/v1/auth/usage` | View developer API usage |
+| POST | `/api/v1/auth/regenerate-key` | Generate a replacement API key |
+
+The raw API key is displayed at registration or regeneration time. Only its hash is stored in the database. Save the key securely because it cannot be retrieved from the stored hash.
+
+### Protected Toll API
+
+These endpoints require a valid API key in the `x-api-key` request header.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/toll-plazas` | Retrieve toll-plaza records |
+| POST | `/api/v1/route` | Calculate route and toll estimate |
+| GET | `/api/v1/usage` | Retrieve API usage information |
+
+Example request header:
+
+```http
+x-api-key: YOUR_API_KEY
 ```
 
-Successful response:
+The API checks the key, account status, and daily quota before processing protected requests. Successful authenticated requests are recorded in usage tracking.
 
-```json
-{
-  "success": true,
-  "message": "India Toll API is running",
-  "database": "connected"
-}
-```
+### Route Calculation Example
 
-Returns HTTP `503` if the database is unavailable.
-
-### 2. List Toll Plazas
-
-**GET** `/api/v1/toll-plazas`
-
-Returns active toll plazas from the database.
-
-Optional query parameter:
-
-| Parameter | Description | Default | Range |
-|---|---|---|---|
-| `limit` | Maximum number of plazas | 20 | 1–100 |
-
-Example:
-
-```bash
-curl "http://localhost:3000/api/v1/toll-plazas?limit=5"
-```
-
-Response structure:
-
-```json
-{
-  "success": true,
-  "count": 5,
-  "data": [
-    {
-      "source_id": 123,
-      "name": "Example Toll Plaza",
-      "highway": "NH 44",
-      "state": "Haryana",
-      "latitude": 29.0,
-      "longitude": 76.0,
-      "is_active": true
-    }
-  ]
-}
-```
-
-The plaza values above are illustrative.
-
-### 3. Calculate Route and Toll Estimate
-
-**POST** `/api/v1/route`
-
-Calculates a road route and identifies toll-plaza candidates along it.
+`POST /api/v1/route`
 
 Example request:
 
@@ -226,23 +287,9 @@ Example request:
 }
 ```
 
-**Request parameters**
+Coordinates use `[longitude, latitude]` order.
 
-| Parameter | Required | Description |
-|---|---|---|
-| `source` | Yes | Starting point as `[longitude, latitude]` |
-| `destination` | Yes | Destination as `[longitude, latitude]` |
-| `vehicle_category` | No | Vehicle category; defaults to `car` |
-| `journey_type` | No | `single`, `return`, `monthly`, or `commercial`; defaults to `single` |
-| `include_geometry` | No | Set to `true` to include route GeoJSON |
-
-### Truck Axle-Based Requests
-
-In addition to predefined vehicle categories, the API supports truck requests using the actual axle count.
-
-When using this format, provide `vehicle_type: "truck"` and `axle_count` instead of `vehicle_category`.
-
-**Example: 3-axle truck, return journey**
+For truck axle-based calculations:
 
 ```json
 {
@@ -255,256 +302,87 @@ When using this format, provide `vehicle_type: "truck"` and `axle_count` instead
 }
 ```
 
-**Axle-to-tariff mapping**
+### Admin Authentication and Management
 
-| Requested axle count | Tariff category used | Approximate |
+| Method | Endpoint | Description |
 |---|---|---|
-| 2 | `axle_4_6` | Yes |
-| 3 | `axle_4_6` | Yes |
-| 4–6 | `axle_4_6` | No |
-| 7 or more | `axle_7_plus` | No |
+| POST | `/api/v1/admin/auth/login` | Admin login |
+| GET | `/api/v1/admin/auth/me` | Verify admin session |
+| POST | `/api/v1/admin/auth/logout` | Admin logout |
+| POST | `/api/v1/admin/customers` | Create an API customer |
+| GET | `/api/v1/admin/customers` | List API customers |
+| PATCH | `/api/v1/admin/customers/:id/status` | Change customer account status |
+| PATCH | `/api/v1/admin/customers/:id/limit` | Change daily API limit |
+| GET | `/api/v1/admin/customers/:id/usage` | View customer usage history |
 
-The 2- and 3-axle mappings use the available 4–6 axle tariff band as provisional estimates. They are not exact axle-specific tariffs and should be independently verified.
+Admin management endpoints require a valid authenticated admin session.
 
-**Additional response fields**
-
-For axle-based truck requests, the response includes:
-
-- `vehicle_type`: Requested vehicle type (`truck`).
-- `requested_axle_count`: Axle count provided by the caller.
-- `vehicle_category`: Selected database tariff category.
-- `tariff_category_used`: Database tariff category selected for the calculation.
-- `is_approximate`: Indicates whether an approximate tariff band was used.
-- `estimation_message`: Explains the selected tariff band and any approximation.
-
-Existing requests using `vehicle_category` continue to work without requiring `vehicle_type` or `axle_count`. This maintains backward compatibility.
-
-**Journey types**
-
-- `single`: Retrieves the single-journey toll rate.
-- `return`: Retrieves the published return-journey toll rate.
-- `monthly`: Uses the available monthly rate data.
-- `commercial`: Uses the available commercial rate data.
-
-**Example using curl**
-
-```bash
-curl -X POST http://localhost:3000/api/v1/route \
-  -H "Content-Type: application/json" \
-  -d '{
-    "source": [77.2090, 28.6139],
-    "destination": [76.7794, 30.7333],
-    "vehicle_category": "axle_4_6",
-    "journey_type": "single",
-    "include_geometry": false
-  }'
-```
-
-**Response structure**
-
-A successful response contains route information, toll candidates, and a toll summary.
-
-An illustrative response structure:
-
-```json
-{
-  "success": true,
-  "data": {
-    "vehicle_category": "axle_4_6",
-    "journey_type": "single",
-    "routing_profile": "driving-hgv",
-    "distance_meters": 267767.2,
-    "duration_seconds": 12792,
-    "toll_plaza_candidates": 6,
-    "toll_summary": {
-      "total_toll_inr": null,
-      "known_subtotal_inr": 2080,
-      "plazas_with_rate": 4,
-      "plazas_without_rate": 2,
-      "rate_confidence": "medium",
-      "data_sources": ["nhai"],
-      "list_may_be_truncated": false,
-      "warnings": []
-    },
-    "toll_plazas": []
-  }
-}
-```
-
-The numbers above are illustrative; live results may differ as routing and source data change. The `toll_plazas` array contains individual plaza details.
-
-When `include_geometry` is `true`, the response additionally includes `route_geometry` as a GeoJSON `LineString`.
-
-## Toll Rate Interpretation and Diagnostics
+## Toll Rate Interpretation
 
 Each toll-plaza candidate has a rate status:
 
 | Status | Meaning |
 |---|---|
-| `available` | A usable rate was found. |
-| `missing` | No applicable rate was found. |
-| `zero_in_source` | The source dataset contains a zero value. |
+| `available` | A usable rate was found |
+| `missing` | No applicable rate was found |
+| `zero_in_source` | The source dataset contains a zero value |
 
-A zero-valued source rate is **not automatically treated as a free toll**.
+A zero-valued source rate is not automatically treated as a free toll.
 
-### Rate Diagnostics
+The API also provides diagnostic information about missing rates, fee-point classification, and possible duplicate records.
 
-The API provides additional information to explain why a toll rate is unavailable.
-
-Important fields include:
-
-- `fee_point_type`: Classification of the fee point.
-- `missing_reason`: Data-level reason why an applicable rate is missing.
-- `rate_data_state`: State of the rate data for the requested category and journey.
-- `possible_duplicate_of`: Information indicating a nearby record that may be a duplicate, when identified.
-- `missing_reason_counts`: Summary of missing-rate reasons across the route candidates.
-
-Possible `fee_point_type` classifications include:
-
-| Classification | Meaning |
-|---|---|
-| `toll_plaza` | Ordinary toll-plaza classification. |
-| `closed_system` | Name matches a likely closed-loop toll pattern. |
-| `possible_closed_system` | Name suggests an interchange or another potentially closed-system fee point. |
-| `non_highway_fee_point` | Name suggests a check post, border, forest or other non-highway fee point. |
-
-Possible rate-data states include:
-
-- `no_rates_in_source`
-- `no_rate_for_vehicle_category`
-- `rate_not_yet_effective`
-- `rate_expired`
-- `no_rate_for_journey_type`
-- `unclassified`
-
-These classifications are diagnostic heuristics based on available source information and naming patterns. They do not independently establish the actual operating arrangement of a fee point.
-
-The `missing_reason` field represents the rate-data state, not the fee-point classification. This keeps data-quality problems separate from fee-point type.
-
-### Toll Summary
-
-- `known_subtotal_inr`: Sum of rates that are available.
-- `total_toll_inr`: Complete total only when all identified candidates have usable rates and the candidate list is not truncated.
-- `plazas_with_rate`: Number of candidates with usable rates.
-- `plazas_without_rate`: Number of candidates without usable rates.
-- `rate_confidence`: An indication based on source and rate freshness metadata.
-- `warnings`: Important data-quality and calculation warnings.
-- `missing_reason_counts`: Counts of the different missing-rate reasons.
-
-If one or more candidates lack usable rates, `total_toll_inr` is returned as `null` rather than presenting an incomplete subtotal as the final toll amount.
-
-## Duplicate Plaza Investigation
-
-The project includes a read-only script to identify active toll-plaza records located close to one another.
-
-Run:
-
-```bash
-npm run report:duplicates
-```
-
-The default search radius is 300 metres.
-
-A custom radius can be supplied in metres:
-
-```bash
-node scripts/report-duplicate-plazas.js 500
-```
-
-The report displays:
-
-- Source IDs and plaza names.
-- Data sources.
-- Distance between plaza coordinates.
-- Whether each plaza has a positive `axle_4_6` single-journey rate.
-
-**Important:** Nearby records are only potential duplicates. Identical coordinates or similar names do not prove that two records represent the same physical toll facility. The script does not merge, delete, or update any database records.
+If one or more candidates lack usable rates, the API can return a `null` complete total while reporting the known subtotal separately. This prevents an incomplete subtotal from being presented as the final toll amount.
 
 ## Automated Testing
 
-The project includes unit tests for plaza classification and rate diagnostics, as well as API smoke tests.
-
-### 1. Unit tests
-
-Run:
+Run unit tests:
 
 ```bash
 npm run test:unit
 ```
 
-These tests use Node.js's built-in test runner and verify:
-
-- Closed-system fee-point classification.
-- Possible closed-system classification.
-- Non-highway fee-point classification.
-- Ordinary toll-plaza classification.
-- Missing-rate data-state classification.
-- Available-rate handling.
-- Zero-valued source-rate handling.
-- Separation of fee-point classification and rate-data state.
-
-### 2. API smoke tests
-
-Start the API server in one terminal:
-
-```bash
-npm run dev
-```
-
-In another terminal, execute:
+Start the backend, then run API smoke tests in another terminal:
 
 ```bash
 npm test
 ```
 
-The smoke tests verify:
+Tests cover plaza classification, rate diagnostics, API health, toll-plaza listing, route calculations, truck axle mapping, input validation, and route geometry.
 
-1. API health and database connectivity.
-2. Toll-plaza listing.
-3. Car single-journey calculation.
-4. Truck single-journey calculation (4–6 axle).
-5. 3-axle truck approximate tariff mapping.
-6. 5-axle truck tariff mapping.
-7. 7-axle truck tariff mapping.
-8. Car return-journey calculation.
-9. Per-plaza rate diagnostics.
-10. Invalid vehicle-category validation.
-11. Invalid-coordinate validation.
-12. Route geometry when enabled.
-13. Route geometry when disabled.
-
-**Requirements:** A running API server, a working PostgreSQL/PostGIS database, and a valid routing API key for successful route tests. Route tests also depend on the external routing service being available.
+Successful route tests require a configured database, a valid routing API key, and availability of the external routing service.
 
 ## Data Sources and Routing
 
-- Toll plaza and rate records are imported from the [ForceGT India Toll Plazas dataset](https://github.com/ForceGT/india-toll-plazas).
-- Road routes are obtained through the HeiGIT/OpenRouteService directions API.
-- PostgreSQL and PostGIS are used for toll-plaza storage and spatial proximity queries.
+- Toll plaza and rate records: [ForceGT India Toll Plazas](https://github.com/ForceGT/india-toll-plazas)
+- Road routing: HeiGIT / OpenRouteService
+- Spatial queries and toll-plaza storage: PostgreSQL / PostGIS
 
-The importer preserves source and confidence metadata where available. Confidence labels reflect the data-processing pipeline and do not represent independent verification of every toll rate.
+Toll rates and confidence labels depend on the available source data and are not independent verification of every toll charge.
 
 ## Important Limitations
 
-- Toll plazas identified near a route are candidates, not confirmation that a vehicle must pay at every identified plaza.
-- The application currently identifies candidates within 250 metres of the calculated route.
+- Toll-plaza candidates near a route do not necessarily mean a vehicle must pay at every candidate.
 - Closed-loop toll systems may require entry and exit information that is not currently calculated.
 - Missing or zero-valued rates can prevent a complete toll estimate.
-- Rates with past revision dates may have changed and should be verified.
-- The 2- and 3-axle truck tariff mappings are approximate.
-- Nearby plaza records may represent separate facilities; duplicate detection does not automatically merge them.
-- Fee-point classification uses naming patterns and should not be treated as independently verified ground truth.
-- The API does not currently implement API-client authentication, usage tracking, or geocoding.
-- Truck routing uses the configured OpenRouteService truck profile; route suitability should be checked for the actual vehicle.
-- The raw toll dataset and database schema must be supplied or initialized separately.
+- Some truck axle mappings are approximate.
+- Potential duplicate records require manual verification.
+- Fee-point classifications are diagnostic heuristics.
+- The raw toll dataset must be obtained separately.
+- The database must be initialized before running the application.
+- The current API does not provide independently verified toll charges for every Indian route.
 
-## Future Improvements
+## Future Work
 
-- API key authentication and usage tracking.
-- Improved closed-loop toll calculation using entry and exit points.
+- Admin login rate limiting and brute-force protection.
+- CSRF protection for session-authenticated admin operations.
+- Further session security review and testing.
+- Production deployment with HTTPS and secure environment configuration.
 - Automated toll-rate updates and verification.
-- Improved route and toll-plaza matching.
-- Manual verification and resolution of potential duplicate records.
-- Expanded automated testing and integration coverage.
+- Improved closed-loop toll calculation.
+- Improved toll-plaza matching and duplicate resolution.
+- Expanded integration and security testing.
+- Complete database schema migrations and setup documentation.
+- Review admin route protection and private admin dashboard access.
 
 ## License
 
