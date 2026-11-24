@@ -1,0 +1,251 @@
+
+/* Raasta Toll — Developer Portal theme */
+
+.developer-shell {
+  min-height: 100vh;
+  background: #f8faf8;
+  color: #27372e;
+  padding: 24px 34px;
+  font-family: Manrope, sans-serif;
+}
+
+.developer-header {
+  max-width: 1100px;
+  margin: 0 auto 40px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #e7ebe7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.developer-header h2 {
+  font-size: 21px;
+  font-weight: 800;
+  margin: 0;
+  color: #236b51;
+}
+
+.developer-header button,
+.api-key-card button {
+  border: 1px solid #dce6de;
+  border-radius: 8px;
+  padding: 10px 16px;
+  background: white;
+  color: #236b51;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .2s;
+}
+
+.developer-header button:hover,
+.api-key-card button:hover {
+  background: #edf5ef;
+}
+
+.developer-content {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.developer-content h1 {
+  color: #27372e;
+  font-size: clamp(28px, 4vw, 36px);
+  font-weight: 800;
+  letter-spacing: -1px;
+  margin-bottom: 8px;
+}
+
+.developer-content > p {
+  color: #6c7972;
+  line-height: 1.7;
+}
+
+.usage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin: 30px 0;
+}
+
+.usage-card,
+.history-card,
+.api-key-card,
+.auth-card {
+  background: #fff;
+  border: 1px solid #e7ece8;
+  border-radius: 17px;
+  padding: 24px;
+  box-shadow: 0 8px 30px #1e3b2910;
+}
+
+.usage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.usage-card span {
+  color: #7a8980;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.usage-card strong {
+  color: #236b51;
+  font: 800 30px Manrope, sans-serif;
+}
+
+.history-card h3,
+.api-key-card h3 {
+  color: #27372e;
+  font: 800 18px Manrope, sans-serif;
+  margin-top: 0;
+}
+
+.history-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid #edf0ed;
+  color: #536258;
+  font-size: 13px;
+}
+
+.api-key-card {
+  margin-top: 28px;
+  border-color: #c9dfd1;
+  background: #fff;
+}
+
+.api-key-card code {
+  display: block;
+  overflow-wrap: anywhere;
+  background: #edf5ef;
+  color: #236b51;
+  padding: 14px;
+  border-radius: 9px;
+  margin: 16px 0;
+  font-size: 13px;
+}
+
+.auth-card {
+  max-width: 440px;
+  margin: 50px auto;
+}
+
+.auth-card h1 {
+  color: #27372e;
+  font: 800 28px Manrope, sans-serif;
+  letter-spacing: -1px;
+  margin-bottom: 8px;
+}
+
+.auth-card > p {
+  color: #6c7972;
+  margin-bottom: 26px;
+  line-height: 1.7;
+}
+
+.auth-card form,
+.auth-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.auth-card form {
+  gap: 20px;
+}
+
+.auth-card label {
+  color: #52645a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.auth-card input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 13px;
+  border: 1px solid #dfe6e0;
+  border-radius: 10px;
+  background: white;
+  color: #27372e;
+  font: inherit;
+  outline: none;
+}
+
+.auth-card input:focus {
+  border-color: #438b6c;
+  box-shadow: 0 0 0 3px #438b6c16;
+}
+
+.auth-card form > button {
+  padding: 15px;
+  border: 0;
+  border-radius: 10px;
+  background: #236b51;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .2s;
+}
+
+.auth-card form > button:hover {
+  background: #18583f;
+}
+
+.auth-card button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.auth-switch {
+  margin-top: 22px;
+  text-align: center;
+  color: #6c7972;
+  font-size: 13px;
+}
+
+.auth-switch button {
+  margin-left: 6px;
+  border: 0;
+  background: none;
+  color: #267453;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.portal-error {
+  color: #b34c3e;
+  font-size: 13px;
+}
+
+.portal-message {
+  color: #267453;
+  font-size: 13px;
+}
+
+@media (max-width: 650px) {
+  .usage-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .developer-shell {
+    padding: 16px;
+  }
+
+  .developer-header {
+    margin-bottom: 24px;
+  }
+
+  .auth-card {
+    margin: 25px auto;
+    padding: 20px;
+  }
+}
