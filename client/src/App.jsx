@@ -214,8 +214,11 @@ function App() {
     }
 
     setLoading(true)
+    console.log('key loaded?', !!import.meta.env.VITE_API_KEY)
     try {
-      const response = await axios.post('/api/v1/route', payload)
+      const response = await axios.post('/api/v1/route', payload, {
+        headers: { 'x-api-key': import.meta.env.VITE_API_KEY }
+      })
       if (!response.data?.success) {
         throw new Error(response.data?.message || 'Calculation failed.')
       }

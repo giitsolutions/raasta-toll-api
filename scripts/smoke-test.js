@@ -1,6 +1,6 @@
 
 const BASE_URL = process.env.API_BASE_URL || "http://localhost:3000";
-
+const API_KEY = process.env.TEST_API_KEY;
 const SOURCE = [77.2090, 28.6139];
 const DESTINATION = [76.7794, 30.7333];
 
